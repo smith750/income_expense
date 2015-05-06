@@ -8,7 +8,7 @@ class Column
 	attr_reader :name, :position, :type, :precision, :scale
 	
 	def initialize(meta_data, position)
-		@name = meta_data.getColumnName(position)
+		@name = meta_data.getColumnName(position).downcase
 		@position = position
 		jdbc_type = meta_data.getColumnType(position)
 		#puts "initing column #{@name} jdbc type #{jdbc_type}"
@@ -40,6 +40,21 @@ class Column
 	def to_s
 		"#{@pos}: #{@name} #{@type}"
 	end
+end
+
+class MetaData
+	def initialize(meta_data)
+		@columns = []
+		col_count = meta_data.getColumnCount()
+		(1..col_count).each do |pos|
+			@columns << Column.new(meta_data, pos)
+		end
+		if @columns_hash.nil?
+			@columns_hash = @columns.inject({}) {|memo, value| memo[value.name] = value; memo}
+		end
+	end
+	
+	attr_reader :columns, :columns_hash
 end
 
 class JdbcResultSetWrapper
@@ -83,8 +98,9 @@ class JdbcResultSetWrapper
 		end
 	end
 
-	def initialize(rs)
+	def initialize(rs, meta_data)
 		@rs = rs
+		@meta_data = meta_data
 	end
 	
 	def as_string(row_name)
@@ -92,7 +108,7 @@ class JdbcResultSetWrapper
 	end
 	
 	def [](row_name)
-		type = columns_hash[row_name]
+		type = @meta_data.columns_hash[row_name]
 		type = :string if type.nil?
 		case type
 		when :date
@@ -120,25 +136,6 @@ class JdbcResultSetWrapper
 	
 	def as_double(row_name)
 		@rs.getDouble(row_name)
-	end
-	
-	def columns()
-		if @cols.nil?
-			meta_data = @rs.getMetaData()
-			@cols = []
-			col_count = meta_data.getColumnCount()
-			(1..col_count).each do |pos|
-				@cols << Column.new(meta_data, pos)
-			end
-		end
-		@cols
-	end
-	
-	def columns_hash()
-		if @columns_hash.nil?
-			@columns_hash = @cols.inject({}) {|memo, value| memo[value.name] = value.type; memo}
-		end
-		@columns_hash
 	end
 	
 	def retrieve_values(columns)
@@ -175,6 +172,14 @@ class JdbcResultSetWrapper
 		s = "insert into #{table_name} (#{insert_columns.join(",")})\nvalues(#{insert_values.join(",")})"
 		s
 	end
+	
+	def to_hash()
+		@meta_data.columns.inject({}) {|memo, value| memo[value.name] = self[value.name]; memo}
+	end
+	
+	def columns()
+		@meta_data.columns
+	end
 end
 
 class JdbcConnection
@@ -210,8 +215,9 @@ class JdbcConnection
 		stmt = @con.prepareStatement(query)
 		add_args_to_stmt!(stmt, args) if args.length > 0
 		rs = stmt.executeQuery
+		meta_data = MetaData.new(rs.getMetaData())
 		while rs.next
-			yield JdbcResultSetWrapper.new(rs)
+			yield JdbcResultSetWrapper.new(rs, meta_data)
 		end
 		rs.close
 		stmt.close
@@ -245,6 +251,7 @@ class JdbcConnection
 			count += 1
 		end
 	end
+	
 end
 
 class MysqlJdbcConnection < JdbcConnection

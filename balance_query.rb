@@ -24,8 +24,10 @@ end
 
 
 query =<<-QUERY
-select gl_acct_balances_t.UNIV_FISCAL_YR, gl_acct_balances_t.FIN_COA_CD, gl_acct_balances_t.ACCOUNT_NBR, gl_acct_balances_t.SUB_ACCT_NBR, gl_acct_balances_t.FIN_OBJECT_CD, gl_acct_balances_t.FIN_SUB_OBJ_CD, gl_acct_balances_t.CURR_BDLN_BAL_AMT, 
-	gl_acct_balances_t.ACLN_ACTLS_BAL_AMT, gl_acct_balances_t.ACLN_ENCUM_BAL_AMT, gl_acct_balances_t.TIMESTAMP, ca_org_t.fin_coa_cd as org_fin_coa_cd, ca_org_t.org_cd, ca_org_t.org_nm, ca_object_code_t.fin_obj_cd_nm, 
+select gl_balance_t.UNIV_FISCAL_YR, gl_balance_t.FIN_COA_CD, gl_balance_t.ACCOUNT_NBR, gl_balance_t.SUB_ACCT_NBR, gl_balance_t.FIN_OBJECT_CD, gl_balance_t.FIN_SUB_OBJ_CD, gl_balance_t.fin_balance_typ_cd,
+	gl_balance_t.ACLN_ANNL_BAL_AMT, gl_balance_t.FIN_BEG_BAL_LN_AMT, gl_balance_t.CONTR_GR_BB_AC_AMT, gl_balance_t.MO1_ACCT_LN_AMT, gl_balance_t.MO2_ACCT_LN_AMT, gl_balance_t.MO3_ACCT_LN_AMT, gl_balance_t.MO4_ACCT_LN_AMT, gl_balance_t.MO5_ACCT_LN_AMT, 
+	gl_balance_t.MO6_ACCT_LN_AMT, gl_balance_t.MO7_ACCT_LN_AMT, gl_balance_t.MO8_ACCT_LN_AMT, gl_balance_t.MO9_ACCT_LN_AMT, gl_balance_t.MO10_ACCT_LN_AMT, gl_balance_t.MO11_ACCT_LN_AMT, gl_balance_t.MO12_ACCT_LN_AMT, gl_balance_t.MO13_ACCT_LN_AMT,
+	gl_balance_t.TIMESTAMP, ca_org_t.fin_coa_cd as org_fin_coa_cd, ca_org_t.org_cd, ca_org_t.org_nm, ca_object_code_t.fin_obj_cd_nm, 
 	ca_object_code_t.FIN_OBJ_TYP_CD, CA_OBJ_LEVEL_T.fin_coa_cd as lvl_fin_coa_cd, ca_obj_level_t.fin_obj_level_cd, ca_obj_level_t.fin_obj_level_nm, 
 	CA_OBJ_CONSOLDTN_T.FIN_COA_CD as cons_fin_coa_cd, CA_OBJ_CONSOLDTN_T.FIN_CONS_OBJ_CD, CA_OBJ_CONSOLDTN_T.FIN_CONS_OBJ_NM, 
 	ca_account_t.ACCT_FSC_OFC_UID, ca_account_t.ACCT_SPVSR_UNVL_ID, ca_account_t.ACCT_MGR_UNVL_ID, ca_org_t.ORG_MGR_UNVL_ID, ca_account_t.ACCT_CLOSED_IND,
@@ -33,7 +35,7 @@ select gl_acct_balances_t.UNIV_FISCAL_YR, gl_acct_balances_t.FIN_COA_CD, gl_acct
 from (ca_org_t 
         join ca_account_t 
         on ca_account_t.fin_coa_cd = ca_org_t.fin_coa_cd and ca_account_t.org_cd = ca_org_t.org_cd)
-  join (gl_acct_balances_t
+  join (gl_balance_t
           join 
             ((ca_object_code_t
               join (CA_OBJ_LEVEL_T
@@ -44,9 +46,9 @@ from (ca_org_t
                     join ca_acctg_ctgry_t
                     on ca_obj_type_t.acctg_ctgry_cd = ca_acctg_ctgry_t.acctg_ctgry_cd
               on ca_object_code_t.fin_obj_typ_cd = ca_obj_type_t.fin_obj_typ_cd)
-          on gl_acct_balances_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_acct_balances_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_acct_balances_t.fin_object_cd = ca_object_code_t.fin_object_cd)
-   on ca_account_t.fin_coa_cd = gl_acct_balances_t.fin_coa_cd and ca_account_t.account_nbr = gl_acct_balances_t.account_nbr
-where gl_acct_balances_t.univ_fiscal_yr = 2015
+          on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd)
+   on ca_account_t.fin_coa_cd = gl_balance_t.fin_coa_cd and ca_account_t.account_nbr = gl_balance_t.account_nbr
+where gl_balance_t.univ_fiscal_yr = 2015 
 QUERY
 
 def lookup_principal_name(principal_id, con)
@@ -80,13 +82,13 @@ db_connect("kfstst_at_kfsstg") do |con|
 	column_names = column_names.reject{|val| removed_columns.include?(val)} + added_columns
 end
 
-File.open("acct_balances_query.json","w") do |fout|
+File.open("balances_query.json","w") do |fout|
 	recs.each do |rec|
 		fout.write(JSON.generate(rec)+"\n")
 	end
 end
 
-CSV.open("acct_balances_query.csv","wb") do |csv|
+CSV.open("balances_query.csv","wb") do |csv|
 	csv << column_names
 	recs.each do |rec|
 		values = column_names.inject([]) {|memo, value| memo << rec[value]}
