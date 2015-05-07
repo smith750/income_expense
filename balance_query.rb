@@ -121,6 +121,14 @@ def update_principals(rec, principal_finder, rice_con)
 	rec["organization_manager_principal_name"] = principal_finder.find_principal_name(rec.delete("org_mgr_unvl_id"),rice_con)
 end
 
+def clean_amount(balance_info, amount_key)
+	if balance_info[amount_key].nil?
+		balance_info[amount_key] = 0.0 
+	else
+		balance_info[amount_key] = balance_info[amount_key].to_f
+	end
+end
+
 def update_by_base_balance(balance_info, con)
 	bb_query =<<-BBQUERY
 select sum(gl_balance_t.FIN_BEG_BAL_LN_AMT) as original_budget, sum(gl_balance_t.ACLN_ANNL_BAL_AMT) as base_budget
@@ -133,12 +141,12 @@ select sum(gl_balance_t.FIN_BEG_BAL_LN_AMT) as original_budget, sum(gl_balance_t
     on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd
 	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd = 'BB'
 BBQUERY
-	balance_info["original_budget"] = 0.0
-	balance_info["base_budget"] = 0.0
 	con.query(bb_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["original_budget"] = row["original_budget"]
 		balance_info["base_budget"] = row["base_budget"]
 	end
+	clean_amount(balance_info, "original_budget")
+	clean_amount(balance_info, "base_budget")
 end
 
 def update_by_current_balance(balance_info, con)
@@ -153,10 +161,10 @@ select sum(gl_balance_t.ACLN_ANNL_BAL_AMT) as current_budget
     on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd
 	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd = 'CB'
 CBQUERY
-	balance_info["current_budget"] = 0.0
 	con.query(cb_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["current_budget"] = row["current_budget"]
 	end
+	clean_amount(balance_info, "current_budget")
 end
 
 def update_by_open_encumbrance(balance_info, con)
@@ -171,10 +179,10 @@ select sum(gl_balance_t.ACLN_ANNL_BAL_AMT) as open_encumbrances
     on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd
 	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd in ('EX','IE','CE')
 ENQUERY
-	balance_info["open_encumbrances"] = 0.0
 	con.query(en_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["open_encumbrances"] = row["open_encumbrances"]
 	end
+	clean_amount(balance_info, "open_encumbrances")
 end
 
 def update_by_pre_encumbrance(balance_info, con)
@@ -189,10 +197,10 @@ select sum(gl_balance_t.ACLN_ANNL_BAL_AMT) as pre_encumbrance
     on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd
 	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd = 'PE'
 PEQUERY
-	balance_info["pre_encumbrance"] = 0.0
 	con.query(pe_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["pre_encumbrance"] = row["pre_encumbrance"]
 	end
+	clean_amount(balance_info, "pre_encumbrance")
 end
 
 def update_by_actual(balance_info, con)
@@ -205,13 +213,15 @@ select sum(CONTR_GR_BB_AC_AMT + ACLN_ANNL_BAL_AMT) as inception_to_date
                       on CA_OBJ_LEVEL_T.FIN_COA_CD = CA_OBJ_CONSOLDTN_T.FIN_COA_CD and CA_OBJ_LEVEL_T.FIN_CONS_OBJ_CD = CA_OBJ_CONSOLDTN_T.FIN_CONS_OBJ_CD)
                 on ca_object_code_t.FIN_OBJ_LEVEL_CD = CA_OBJ_LEVEL_T.fin_obj_level_cd and ca_object_code_t.fin_coa_cd = ca_obj_level_t.fin_coa_cd)
     on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd
-	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd = 'PE'
+	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd = 'AC'
 ACQUERY
 	balance_info["inception_to_date"] = 0.0
-	con.query(pe_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
+	con.query(ac_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["inception_to_date"] = row["inception_to_date"]
 	end
+	clean_amount(balance_info, "inception_to_date")
 	balance_info["balance_available"] = balance_info["current_budget"] - balance_info["inception_to_date"] - balance_info["open_encumbrances"] - balance_info["pre_encumbrance"]
+	clean_amount(balance_info, "balance_available")
 end
 
 balance_infos = []
@@ -225,7 +235,9 @@ db_connect("kfstst_at_kfsstg") do |con|
 	balance_infos.each do |balance_info| 
 		update_by_base_balance(balance_info, con)
 		update_by_current_balance(balance_info, con)
-		
+		update_by_open_encumbrance(balance_info, con)
+		update_by_pre_encumbrance(balance_info, con)
+		update_by_actual(balance_info, con)
 	end
 end
 
