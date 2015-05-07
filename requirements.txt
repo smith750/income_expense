@@ -1,0 +1,9 @@
+for every account, group balances by object consolidation
+
+original budget = FIN_BEG_BAL_LN_AMT and balance type = BB
+base budget = ACLN_ANNL_BAL_AMT and balance type = BB
+current budget = balance type CB and ACLN_ANNL_BAL_AMT
+inception to date = balance type AC and CONTR_GR_BB_AC_AMT + ACLN_ANNL_BAL_AMT
+open encumbrances = ACLN_ANNL_BAL_AMT, balance type = IE, EX
+pre-encumbrance = ACLN_ANNL_BAL_AMT balance type PE
+balance available = current budget - inception to date - open encumbrances - pre-encumbrances
