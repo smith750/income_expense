@@ -101,7 +101,8 @@ from (ca_org_t
               on ca_obj_type_t.acctg_ctgry_cd = ca_acctg_ctgry_t.acctg_ctgry_cd)
       on gl_balance_t.fin_obj_typ_cd = ca_obj_type_t.fin_obj_typ_cd)
    on ca_account_t.fin_coa_cd = gl_balance_t.fin_coa_cd and ca_account_t.account_nbr = gl_balance_t.account_nbr
-where gl_balance_t.univ_fiscal_yr = 2015 and ca_acctg_ctgry_t.acctg_ctgry_cd in ('IN','EX')
+--where gl_balance_t.univ_fiscal_yr = 2015 and ca_acctg_ctgry_t.acctg_ctgry_cd in ('IN','EX')
+where ca_acctg_ctgry_t.acctg_ctgry_cd in ('IN','EX')
 QUERY
 
 	recs = []
@@ -121,11 +122,11 @@ def update_principals(rec, principal_finder, rice_con)
 	rec["organization_manager_principal_name"] = principal_finder.find_principal_name(rec.delete("org_mgr_unvl_id"),rice_con)
 end
 
-def clean_amount(balance_info, amount_key)
-	if balance_info[amount_key].nil?
-		balance_info[amount_key] = 0.0 
+def clean_amount(amount)
+	if amount.nil?
+		amount = 0.0 
 	else
-		balance_info[amount_key] = balance_info[amount_key].to_f
+		amount = amount.to_f
 	end
 end
 
@@ -145,8 +146,8 @@ BBQUERY
 		balance_info["original_budget"] = row["original_budget"]
 		balance_info["base_budget"] = row["base_budget"]
 	end
-	clean_amount(balance_info, "original_budget")
-	clean_amount(balance_info, "base_budget")
+	balance_info["original_budget"] = clean_amount(balance_info["original_budget"])
+	balance_info["base_budget"] = clean_amount(balance_info["base_budget"])
 end
 
 def update_by_current_balance(balance_info, con)
@@ -164,7 +165,7 @@ CBQUERY
 	con.query(cb_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["current_budget"] = row["current_budget"]
 	end
-	clean_amount(balance_info, "current_budget")
+	balance_info["current_budget"] = clean_amount(balance_info["current_budget"])
 end
 
 def update_by_open_encumbrance(balance_info, con)
@@ -182,7 +183,7 @@ ENQUERY
 	con.query(en_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["open_encumbrances"] = row["open_encumbrances"]
 	end
-	clean_amount(balance_info, "open_encumbrances")
+	balance_info["open_encumbrances"] = clean_amount(balance_info["open_encumbrances"])
 end
 
 def update_by_pre_encumbrance(balance_info, con)
@@ -200,12 +201,12 @@ PEQUERY
 	con.query(pe_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["pre_encumbrance"] = row["pre_encumbrance"]
 	end
-	clean_amount(balance_info, "pre_encumbrance")
+	balance_info["pre_encumbrance"] = clean_amount(balance_info["pre_encumbrance"])
 end
 
 def update_by_actual(balance_info, con)
 	ac_query = <<-ACQUERY
-select sum(CONTR_GR_BB_AC_AMT + ACLN_ANNL_BAL_AMT) as inception_to_date
+select sum(CONTR_GR_BB_AC_AMT + ACLN_ANNL_BAL_AMT) as inception_to_date, sum(ACLN_ANNL_BAL_AMT) as fiscal_year_total
 	from gl_balance_t join
 		(ca_object_code_t
                 join (CA_OBJ_LEVEL_T
@@ -215,16 +216,128 @@ select sum(CONTR_GR_BB_AC_AMT + ACLN_ANNL_BAL_AMT) as inception_to_date
     on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd
 	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd = 'AC'
 ACQUERY
-	balance_info["inception_to_date"] = 0.0
 	con.query(ac_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
 		balance_info["inception_to_date"] = row["inception_to_date"]
+		balance_info["fiscal_year_total"] = row["fiscal_year_total"]
 	end
-	clean_amount(balance_info, "inception_to_date")
+	balance_info["inception_to_date"] = clean_amount(balance_info["inception_to_date"])
+	balance_info["fiscal_year_actuals"] = clean_amount(balance_info["fiscal_year_actuals"])
 	balance_info["balance_available"] = balance_info["current_budget"] - balance_info["inception_to_date"] - balance_info["open_encumbrances"] - balance_info["pre_encumbrance"]
-	clean_amount(balance_info, "balance_available")
+	balance_info["balance_available"] = clean_amount(balance_info["balance_available"])
 end
 
-balance_infos = []
+def build_period_records(balance_info, con)
+	per_query = <<-PERQUERY
+select sum(MO1_ACCT_LN_AMT) as per1, sum(MO2_ACCT_LN_AMT) as per2, sum(MO3_ACCT_LN_AMT) as per3, sum(MO4_ACCT_LN_AMT) as per4, sum(MO4_ACCT_LN_AMT) as per4, sum(MO5_ACCT_LN_AMT) as per5, sum(MO6_ACCT_LN_AMT) as per6, sum(MO7_ACCT_LN_AMT) as per7, sum(MO8_ACCT_LN_AMT) as per8, sum(MO9_ACCT_LN_AMT) as per9, sum(MO10_ACCT_LN_AMT) as per10, sum(MO11_ACCT_LN_AMT) as per11, sum(MO12_ACCT_LN_AMT) as per12, sum(MO13_ACCT_LN_AMT) as per13
+	from gl_balance_t join
+		(ca_object_code_t
+                join (CA_OBJ_LEVEL_T
+                      join CA_OBJ_CONSOLDTN_T
+                      on CA_OBJ_LEVEL_T.FIN_COA_CD = CA_OBJ_CONSOLDTN_T.FIN_COA_CD and CA_OBJ_LEVEL_T.FIN_CONS_OBJ_CD = CA_OBJ_CONSOLDTN_T.FIN_CONS_OBJ_CD)
+                on ca_object_code_t.FIN_OBJ_LEVEL_CD = CA_OBJ_LEVEL_T.fin_obj_level_cd and ca_object_code_t.fin_coa_cd = ca_obj_level_t.fin_coa_cd)
+    on gl_balance_t.univ_fiscal_yr = ca_object_code_t.univ_fiscal_yr and gl_balance_t.fin_coa_cd = ca_object_code_t.fin_coa_cd and gl_balance_t.fin_object_cd = ca_object_code_t.fin_object_cd
+	where gl_balance_t.univ_fiscal_yr = ? and gl_balance_t.fin_coa_cd = ? and gl_balance_t.account_nbr = ? and gl_balance_t.sub_acct_nbr = ? and ca_obj_consoldtn_t.fin_cons_obj_cd = ? and gl_balance_t.fin_balance_typ_cd = 'AC'
+PERQUERY
+	per1 = 0.0
+	per2 = 0.0
+	per3 = 0.0
+	per4 = 0.0
+	per5 = 0.0
+	per6 = 0.0
+	per7 = 0.0
+	per8 = 0.0
+	per9 = 0.0
+	per10 = 0.0
+	per11 = 0.0
+	per12 = 0.0
+	per13 = 0.0
+	con.query(per_query, balance_info["univ_fiscal_yr"], balance_info["fin_coa_cd"], balance_info["account_nbr"], balance_info["sub_acct_nbr"], balance_info["fin_cons_obj_cd"]) do |row|
+		per1 = clean_amount(row["per1"])
+		per2 = clean_amount(row["per2"])
+		per3 = clean_amount(row["per3"])
+		per4 = clean_amount(row["per4"])
+		per5 = clean_amount(row["per5"])
+		per6 = clean_amount(row["per6"])
+		per7 = clean_amount(row["per7"])
+		per8 = clean_amount(row["per8"])
+		per9 = clean_amount(row["per9"])
+		per10 = clean_amount(row["per10"])
+		per11 = clean_amount(row["per11"])
+		per12 = clean_amount(row["per12"])
+		per13 = clean_amount(row["per13"])
+	end
+	
+	bal_periods = []
+	
+	bal_period1 = balance_info.clone
+	bal_period1["current_month_actuals"] = per1
+	bal_period1["fiscal_year_actuals"] = per1
+	bal_periods << bal_period1
+	
+	bal_period2 = balance_info.clone
+	bal_period2["current_month_actuals"] = per2
+	bal_period2["fiscal_year_actuals"] = per1 + per2
+	bal_periods << bal_period2
+	
+	bal_period3 = balance_info.clone
+	bal_period3["current_month_actuals"] = per3
+	bal_period3["fiscal_year_actuals"] = per1 + per2 + per3
+	bal_periods << bal_period3
+	
+	bal_period4 = balance_info.clone
+	bal_period4["current_month_actuals"] = per4
+	bal_period4["fiscal_year_actuals"] = per1 + per2 + per3 + per4
+	bal_periods << bal_period4
+	
+	bal_period5 = balance_info.clone
+	bal_period5["current_month_actuals"] = per5
+	bal_period5["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5
+	bal_periods << bal_period5
+	
+	bal_period6 = balance_info.clone
+	bal_period6["current_month_actuals"] = per6
+	bal_period6["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6
+	bal_periods << bal_period6
+	
+	bal_period7 = balance_info.clone
+	bal_period7["current_month_actuals"] = per7
+	bal_period7["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6 + per7
+	bal_periods << bal_period7
+	
+	bal_period8 = balance_info.clone
+	bal_period8["current_month_actuals"] = per8
+	bal_period8["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6 + per7 + per8
+	bal_periods << bal_period8
+	
+	bal_period9 = balance_info.clone
+	bal_period9["current_month_actuals"] = per9
+	bal_period9["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6 + per7 + per8 + per9
+	bal_periods << bal_period9
+	
+	bal_period10 = balance_info.clone
+	bal_period10["current_month_actuals"] = per10
+	bal_period10["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6 + per7 + per8 + per9 + per10
+	bal_periods << bal_period10
+	
+	bal_period11 = balance_info.clone
+	bal_period11["current_month_actuals"] = per11
+	bal_period11["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6 + per7 + per8 + per9 + per10 + per11
+	bal_periods << bal_period11
+	
+	bal_period12 = balance_info.clone
+	bal_period12["current_month_actuals"] = per12
+	bal_period12["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6 + per7 + per8 + per9 + per10 + per11 + per12
+	bal_periods << bal_period12
+	
+	bal_period13 = balance_info.clone
+	bal_period13["current_month_actuals"] = per13
+	bal_period13["fiscal_year_actuals"] = per1 + per2 + per3 + per4 + per5 + per6 + per7 + per8 + per9 + per10 + per11 + per12 + per13
+	bal_periods << bal_period13
+	
+	bal_periods
+end
+
+balance_periods = []
 db_connect("kfstst_at_kfsstg") do |con|
 	balance_infos = lookup_basic_balance_info(con)
 	
@@ -239,18 +352,24 @@ db_connect("kfstst_at_kfsstg") do |con|
 		update_by_pre_encumbrance(balance_info, con)
 		update_by_actual(balance_info, con)
 	end
+	
+	balance_infos.each do |balance_info|
+		balance_periods_for_info = build_period_records(balance_info, con)
+		#puts "balance periods #{balance_periods.size} balance periods for info #{balance_periods_for_info.size}"
+		balance_periods = balance_periods + balance_periods_for_info
+	end
 end
 
-File.open("balances_query.json","w") do |fout|
-	balance_infos.each do |rec|
+File.open("income_expense.json","w") do |fout|
+	balance_periods.each do |rec|
 		fout.write(JSON.generate(rec)+"\n")
 	end
 end
 
-col_names = balance_infos[0].keys
-CSV.open("balances_query.csv","wb") do |csv|
+col_names = balance_periods[0].keys
+CSV.open("income_expense.csv","wb") do |csv|
 	csv << col_names
-	balance_infos.each do |rec|
+	balance_periods.each do |rec|
 		values = col_names.inject([]) {|memo, value| memo << rec[value]}
 		csv << values
 	end
