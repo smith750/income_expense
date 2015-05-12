@@ -361,16 +361,27 @@ db_connect("kfstst_at_kfsstg") do |con|
 end
 
 File.open("income_expense.json","w") do |fout|
-	balance_periods.each do |rec|
+	es_commands = (1..(balance_periods.size)).inject([]) do |commands, count|
+		rec_info = {}
+		rec_info["_index"] = "income_expense"
+		rec_info["_type"] = "consolidated_balance"
+		rec_info["_id"] = count.to_s
+		command = {}
+		command["create"] = rec_info
+		commands << command
+		commands
+	end
+	bulk_commands = es_commands.zip(balance_periods).flatten!
+	bulk_commands.each do |rec|
 		fout.write(JSON.generate(rec)+"\n")
 	end
 end
 
-col_names = balance_periods[0].keys
-CSV.open("income_expense.csv","wb") do |csv|
-	csv << col_names
-	balance_periods.each do |rec|
-		values = col_names.inject([]) {|memo, value| memo << rec[value]}
-		csv << values
-	end
-end
+#col_names = balance_periods[0].keys
+#CSV.open("income_expense.csv","wb") do |csv|
+#	csv << col_names
+#	balance_periods.each do |rec|
+#		values = col_names.inject([]) {|memo, value| memo << rec[value]}
+#		csv << values
+#	end
+#end
